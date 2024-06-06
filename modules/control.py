@@ -8,6 +8,12 @@
 
 from i2cylib.serial.sbus import SBUS, SBUS_SIGNAL_OK, SBUS_SIGNAL_LOST, SBUS_SIGNAL_FAILSAFE
 import os
+import time
+
+if __name__ == '__main__':
+    from blackbox import BlackBoxLogger
+else:
+    from .blackbox import BlackBoxLogger
 
 CM4_READY = 22
 RC_SEL = 20
@@ -52,11 +58,12 @@ def set_CM4_ready_LED(light_on=True):
 
 class Controller:
 
-    def __init__(self, rx_dev: str = "/dev/ttyACM0", tx_dev: str = "/dev/ttyACM1"):
+    def __init__(self, rx_dev: str = "/dev/ttyACM0", tx_dev: str = "/dev/ttyACM1", blackbox: BlackBoxLogger = None):
         """
         control interface for OPi-AT32-FC-OBCM
         :param rx_dev: path to rx device
         :param tx_dev: path to tx device
+        :param blackbox: BlackBoxLogger instance
         """
         init_gpio()  # initialize all gpio
         set_CM4_ready_LED(light_on=False)  # set ready signal to False
@@ -65,6 +72,9 @@ class Controller:
         self.__tx_dev = SBUS(tx_dev, multiprocess=False, rx=False, tx=True)  # initialize tx device
 
         self.rx_dev.register_callback(self.rc_signal_handler_callback)
+        self.blackbox = blackbox
+
+        self.takeoff = False
 
         class Signals:
             """
@@ -83,10 +93,31 @@ class Controller:
                 convert value to sbus value
                 :return: thr, roll, pitch, yaw
                 """
-                thr = self.throttle * self.__convert_k + RC_MIN
+                thr = (self.throttle) * self.__convert_k + RC_MIN
                 roll = (self.roll + 500) * self.__convert_k + RC_MIN
                 pitch = (self.pitch + 500) * self.__convert_k + RC_MIN
                 yaw = (self.yaw + 500) * self.__convert_k + RC_MIN
+
+                # limit RC output value here
+                if thr <= RC_MIN:
+                    thr = RC_MIN
+                elif thr >= RC_MAX:
+                    thr = RC_MAX
+
+                if roll <= RC_MIN:
+                    roll = RC_MIN
+                elif roll >= RC_MAX:
+                    roll = RC_MAX
+
+                if pitch <= RC_MIN:
+                    pitch = RC_MIN
+                elif pitch >= RC_MAX:
+                    pitch = RC_MAX
+
+                if yaw <= RC_MIN:
+                    yaw = RC_MIN
+                elif yaw >= RC_MAX:
+                    yaw = RC_MAX
 
                 return int(thr), int(roll), int(pitch), int(yaw)
 
@@ -102,27 +133,95 @@ class Controller:
         :param flags: int, signal
         :return:
         """
-        if channels[4] > 1500:
-            self.armed = True
-        else:
-            self.armed = False
+        try:
+            new_ch = [ele for ele in channels]
 
-        if flags != SBUS_SIGNAL_OK:
-            self.signal_good = False
+            if new_ch[4] > 1500:
+                if not self.armed:
+                    self.armed = True
+                    print("\nnow armed")
+            else:
+                if self.armed:
+                    self.armed = False
+                    print("\nnow disarmed")
 
-        if flags == SBUS_SIGNAL_OK and channels[7] < 1500:
-            thr, roll, pitch, yaw = self.signals.get_sbus_value()
-            channels[0] = thr
-            channels[1] = roll
-            channels[2] = pitch
-            channels[3] = yaw
+            if flags != SBUS_SIGNAL_OK:
+                if self.signal_good:
+                    self.signal_good = False
+                    print("\nsignal lost")
+            else:
+                if not self.signal_good:
+                    self.signal_good = True
+                    print("\nsignal good")
 
-        if channels[7] > 1500:
-            self.manual_control = True
-        else:
-            self.manual_control = False
+            if flags == SBUS_SIGNAL_OK and new_ch[7] < 1500:
+                # passing new RC signals to FC
+                thr, roll, pitch, yaw = self.signals.get_sbus_value()
+                new_ch[0] = thr
+                new_ch[1] = roll
+                new_ch[2] = pitch
+                new_ch[5] = RC_MID
 
-        self.__tx_dev.update_channels_and_flag(channels, flags)
+            if new_ch[7] > 1500:
+                if not self.manual_control:
+                    self.manual_control = True
+                    print("\nmanual control")
+            else:
+                if self.manual_control:
+                    self.manual_control = False
+                    print("\nauto control")
+
+            if self.blackbox is not None:
+                if self.armed:
+                    self.blackbox.log(
+                        {
+                            "rc_rx_thr": channels[0],
+                            "rc_rx_roll": channels[1],
+                            "rc_rx_pitch": channels[2],
+                            "rc_rx_yaw": channels[3],
+                            "rc_rx_ch5": channels[4],
+                            "rc_rx_ch6": channels[5],
+                            "rc_rx_ch7": channels[6],
+                            "rc_rx_ch8": channels[7],
+                            "rc_rx_ch9": channels[8],
+                            "rc_rx_ch10": channels[9],
+                            "rc_rx_ch11": channels[10],
+                            "rc_rx_ch12": channels[11],
+                            "rc_rx_ch13": channels[12],
+                            "rc_rx_ch14": channels[13],
+                            "rc_rx_ch15": channels[14],
+                            "rc_rx_ch16": channels[15],
+                            "rc_rx_flag": flags,
+                            "rc_tx_thr": new_ch[0],
+                            "rc_tx_roll": new_ch[1],
+                            "rc_tx_pitch": new_ch[2],
+                            "rc_tx_yaw": new_ch[3],
+                            "rc_tx_ch5": new_ch[4],
+                            "rc_tx_ch6": new_ch[5],
+                            "rc_tx_ch7": new_ch[6],
+                            "rc_tx_ch8": new_ch[7],
+                            "rc_tx_ch9": new_ch[8],
+                            "rc_tx_ch10": new_ch[9],
+                            "rc_tx_ch11": new_ch[10],
+                            "rc_tx_ch12": new_ch[11],
+                            "rc_tx_ch13": new_ch[12],
+                            "rc_tx_ch14": new_ch[13],
+                            "rc_tx_ch15": new_ch[14],
+                            "rc_tx_ch16": new_ch[15]
+                        }
+                    )
+                else:
+                    self.blackbox.log(
+                        {
+                            "rc_rx_ch5": channels[4],
+                            "rc_tx_ch5": new_ch[4],
+                            "rc_rx_flag": flags,
+                        }
+                    )
+
+            self.__tx_dev.update_channels_and_flag(new_ch, flags)
+        except Exception as e:
+            print("\nerror while handling RC signal, {}".format(e))
 
     def start(self):
         """
@@ -148,6 +247,7 @@ class Controller:
 
 if __name__ == '__main__':  # unit test
     import time
+
     ctl = Controller()
     ctl.start()
     time.sleep(1)

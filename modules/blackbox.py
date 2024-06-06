@@ -15,6 +15,7 @@ from i2cylib.engineering import PID
 import time
 import struct
 import os
+import pathlib
 
 """
 BlackBox File Format:
@@ -32,6 +33,7 @@ MAX_TIME_WAIT_TO_WRITE_SEC = 0.5
 MAX_DATA_LENGTH_WAIT_TO_WRITE = 16384
 META_FILENAME = "meta_data.bin"
 DATA_FILENAME = "data.bin"
+DEFAULT_OBBL_FILE_PATH = "./blackbox"
 __VERSION__ = "1.0"
 
 
@@ -47,7 +49,18 @@ class BlackBoxLogger:
         self.mp_log_queue = Queue()  # format: (time.time(), {'column_A': <column_data>, 'column_B'.....})
         self.mp_cmd_queue = Queue()  # format: {<command_name>: <Any payload>}
         if filename is None:
-            filename = "OPi-AT32-blackbox_{}.obbl".format(time.strftime("%Y%m%d-%H%M%S"))
+            if not os.path.exists(DEFAULT_OBBL_FILE_PATH) or not os.path.isdir(DEFAULT_OBBL_FILE_PATH):
+                os.mkdir(DEFAULT_OBBL_FILE_PATH)
+            path = pathlib.Path(DEFAULT_OBBL_FILE_PATH)
+            files = [ele.name for ele in path.glob("*.obbl")]
+            i = len(files)
+            while True:
+                i += 1
+                filename = "OPi-AT32-blackbox_{}.obbl".format(i)
+                if filename not in files:
+                    break
+            filename = path.joinpath(filename).as_posix()
+
         self.filename = filename
         self.__processes = []
         self.__start_ts = 0.0
@@ -130,7 +143,10 @@ class BlackBoxLogger:
                         file_io.release()  # update changes immediately to the real filesystem
 
                     # append packed data to cache
-                    cache += struct.pack("<B{}".format(meta[1]), meta[0], data[1][ele])
+                    try:
+                        cache += struct.pack("<B{}".format(meta[1]), meta[0], data[1][ele])
+                    except Exception as err:
+                        print(err, "meta:", meta, "data:", data)
             except queue.Empty:
                 pass
 

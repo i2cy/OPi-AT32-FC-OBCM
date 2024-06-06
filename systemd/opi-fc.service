@@ -1,0 +1,15 @@
+[Unit]
+Description=OPi FC Service
+After=network.target
+
+[Service]
+User=root
+Group=root
+ExecStart=/usr/bin/python3 /home/orangepi/opi-fc/main.py
+GuessMainPID=no
+WorkingDirectory=/home/orangepi/opi-fc/
+Restart=always
+RestartSec=1s
+
+[Install]
+WantedBy=multi-user.target
