@@ -27,18 +27,19 @@ else:
     -X
 """
 
-PID_X = (1.2, 0, 0.03)
-PID_DX = (3.4, 0.7, 0.11)
-PID_Y = (1.2, 0, 0.03)
-PID_DY = (3.4, 0.7, 0.11)
-PID_H = (1.0, 0, 0.01)
-PID_DH = (0.47, 0.10, 0.08)
 
-HOVER_THR = 700
+PID_X = (1.3, 0, 0.08)
+PID_DX = (3.1, 0.7, 0.11)
+PID_Y = (1.3, 0, 0.08)
+PID_DY = (3.1, 0.7, 0.11)
+PID_H = (1.0, 0, 0.10)
+PID_DH = (0.59, 0.18, 0.07)
+
+HOVER_THR = 640
 ALT_MIN = 50
-ALT_MAX = 150
-ALT_SPEED_MAX = 100
-XY_SPEED_MAX = 200
+ALT_MAX = 200
+ALT_SPEED_MAX = 70
+XY_SPEED_MAX = 180
 
 DOUBLE_PI = 6.283185307179586476925286766559
 
@@ -144,7 +145,7 @@ class PosCtl:
         self.pid_dx.integ_limit = (-500, 500)
         self.pid_dx.register_callback(level_ctl_core)  # register blackbox logger to PID core
 
-        self.pid_dh = PID(*PID_DH, core_freq=20, dterm_lpf_cutoff_hz=8)
+        self.pid_dh = PID(*PID_DH, core_freq=20, dterm_lpf_cutoff_hz=4)
         self.pid_dh.out_limit = (-1000, 1000)
         self.pid_dh.integ_limit = (-2000, 2000)
 
@@ -216,10 +217,10 @@ class PosCtl:
                 self.ctl.signals.throttle = 0  # basically to idle all motors
             elif self.landing and self.ofs.distance.height < 10:
                 # to cancel the ground effect (decoupled)
-                self.ctl.signals.throttle = (self.pid_dh.out + HOVER_THR * 0.95) / (self.ofs.attitude.cos_phi * 1.3)
+                self.ctl.signals.throttle = (self.pid_dh.out + HOVER_THR * 0.95) / (self.ofs.attitude.cos_phi * 1.1)
             else:
                 # normal in-air flight (decoupled)
-                self.ctl.signals.throttle = (self.pid_dh.out + HOVER_THR) / (self.ofs.attitude.cos_phi * 1.3)
+                self.ctl.signals.throttle = (self.pid_dh.out + HOVER_THR) / (self.ofs.attitude.cos_phi * 1.1)
 
             # logging
             self.logger.log(
@@ -277,9 +278,9 @@ class PosCtl:
         # tests
         self.test_pos = [
             [0, 0],
-            [100, 0],
-            [100, 100],
-            [0, 100],
+            [200, 0],
+            [200, 300],
+            [0, 300],
             [0, 0]
         ]
         self.test_start_pos = [0, 0]
@@ -353,7 +354,7 @@ class PosCtl:
         # print(channels)
         v_speed, x_speed, y_speed = self.__convert_rc_to_speed(*channels[0:3])
 
-        if -15 < v_speed < 15:
+        if -30 < v_speed < 30:
             # dead zone for vertical speed
             v_speed = 0
 
@@ -424,6 +425,7 @@ class PosCtl:
                     if -4 < self.pid_x.err < 4 and -4 < self.pid_y.err < 4:
                         if time.time() - self.test_hold_t0 > self.test_hold_timeout:
                             self.test_i += 1
+                            self.test_hold_t0 = time.time()
 
                     else:
                         self.test_hold_t0 = time.time()
